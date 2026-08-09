@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="{{ site.lang or 'en' }}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <meta
+      name="generator"
+      content="Poops (https://github.com/stamat/poops)"
+    />
+
+    <title>{{ page.title or site.title }}</title>
+    <meta
+      name="description"
+      content="{{ page.description or site.description }}"
+    />
+    {% if page.robots %}
+    <meta name="robots" content="{{ page.robots }}" />
+    {% endif %} {{ page | canonical(site) }}
+
+    <link
+      rel="icon"
+      href="{{ relativePathPrefix }}static/favicon.svg"
+      type="image/svg+xml"
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#080809" />
+
+    {{ page | og(site) }} {# The og filter drops og:url on the
+    homepage — poops leaves page.url unset there, and its absUrl()
+    returns undefined for any falsy value. Emitted here instead, with
+    the same target the canonical link uses, so the two never
+    disagree. #} {% if site.url and not page.url %}
+    <meta property="og:url" content="{{ site.url }}" />
+    {% endif %} {{ page | jsonld(site) }}
+
+    {#
+      Only the two faces the first viewport needs. crossorigin is required even
+      same-origin: font fetches are CORS-mode, and without it the preload misses
+      and the file downloads twice. JetBrains Mono is small metadata text and
+      rides font-display: swap instead.
+    #}
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="{{ relativePathPrefix }}static/fonts/inter-var.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="{{ relativePathPrefix }}static/fonts/archivo-narrow-var.woff2"
+      crossorigin
+    />
+    <link
+      rel="stylesheet"
+      href="{{ relativePathPrefix }}styles/style.min.css"
+    />
+  </head>
+  <body>
+    <main id="content">{% block content %} {% endblock %}</main>
+    <script
+      async
+      src="{{ relativePathPrefix }}scripts/script.min.js"
+    ></script>
+  </body>
+</html>

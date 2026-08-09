@@ -1,0 +1,83 @@
+#!/bin/bash
+#
+# Cuts a downloaded variable font down to the codepoints this site renders and
+# writes it to src/static/fonts/. A Google Fonts download is one file fused
+# from every unicode range it ships — Latin, Greek, Cyrillic, Vietnamese — and
+# a single @font-face with no unicode-range makes the browser take all of it.
+# Subsetting moves the slicing the Google CDN does per visitor into the repo.
+#
+# Usage:
+#   script/fonts SOURCE NAME [--pin-opsz=N]
+#
+# The three faces this site uses were cut with:
+#   script/fonts ~/Downloads/ArchivoNarrow-VariableFont_wght.woff2   archivo-narrow
+#   script/fonts ~/Downloads/Inter-VariableFont_opsz,wght.woff2      inter --pin-opsz=16
+#   script/fonts ~/Downloads/JetBrainsMono-VariableFont_wght.woff2   jetbrains-mono
+#
+# --pin-opsz collapses an optical-size axis to one value. Worth 24KB on Inter,
+# and costs nothing here because Archivo Narrow owns the headlines — nothing
+# renders Inter large enough for optical sizing to be visible. Pass it only to
+# a font that has the axis; instancer errors out on one that does not.
+#
+# The wght axis is always kept, so the @font-face weight ranges in
+# src/styles/index.scss stay valid.
+
+set -euo pipefail
+
+# Basic Latin + Latin-1, Latin Extended-A (č ć ž š đ), general punctuation,
+# the arrows and geometric marks the design draws with, € ™ − ∕.
+# No Cyrillic: a page in ćirilica would fall back to a system font.
+UNICODES='U+0000-00FF,U+0100-017F,U+2000-206F,U+20AC,U+2122,U+2190-2199,U+2212,U+2215,U+25A0-25A1,U+2713-2715,U+FEFF,U+FFFD'
+FEATURES='kern,liga,clig,calt,ccmp,locl,mark,mkmk,tnum'
+
+OUT_DIR="$(cd "$(dirname "$0")/.." && pwd)/src/static/fonts"
+
+usage() {
+  sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'
+  exit 1
+}
+
+[ $# -ge 2 ] || usage
+
+SOURCE="$1"
+NAME="$2"
+PIN_OPSZ=""
+
+if [ $# -ge 3 ]; then
+  case "$3" in
+    --pin-opsz=*) PIN_OPSZ="${3#--pin-opsz=}" ;;
+    *) echo "unknown option: $3" >&2; usage ;;
+  esac
+fi
+
+for tool in pyftsubset fonttools; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "$tool not found. Install it, then re-run:" >&2
+    echo "  python3 -m venv .venv && .venv/bin/pip install 'fonttools[woff]'" >&2
+    echo "  PATH=\"\$PWD/.venv/bin:\$PATH\" script/fonts $*" >&2
+    exit 1
+  }
+done
+
+[ -f "$SOURCE" ] || { echo "no such file: $SOURCE" >&2; exit 1; }
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+INPUT="$SOURCE"
+if [ -n "$PIN_OPSZ" ]; then
+  fonttools varLib.instancer -q "$SOURCE" "opsz=$PIN_OPSZ" -o "$WORK/pinned.ttf"
+  INPUT="$WORK/pinned.ttf"
+fi
+
+DEST="$OUT_DIR/$NAME-var.woff2"
+mkdir -p "$OUT_DIR"
+pyftsubset "$INPUT" \
+  --output-file="$DEST" \
+  --flavor=woff2 \
+  --unicodes="$UNICODES" \
+  --layout-features="$FEATURES"
+
+before=$(wc -c <"$SOURCE")
+after=$(wc -c <"$DEST")
+printf '%s: %d KB -> %d KB\n' "$NAME" $((before / 1024)) $((after / 1024))

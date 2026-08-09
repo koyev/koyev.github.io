@@ -1,0 +1,73 @@
+name: Deploy GitHub Pages
+
+# Runs after CI finishes rather than racing it on the same push, so a red lint
+# or a failing test can never reach the live site. `workflow_run` only fires
+# for a workflow file that exists on the default branch, and the name below
+# must match the `name:` in ci.yml exactly.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Two pushes in quick succession would otherwise race two deploys against the
+# same Pages environment. Queue rather than cancel: a half-finished deploy that
+# gets cancelled can leave the live site on the older build.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    # `completed` fires for failure and cancellation too, so the conclusion has
+    # to be checked explicitly. The event check is the security half: ci.yml
+    # also runs on pull_request, and a workflow_run job carries write
+    # permissions of the base repo — without it, a pull request could reach a
+    # job holding `pages: write`.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      # workflow_run checks out the default branch tip, which by now may be a
+      # newer commit than the one CI passed. Pin to the tested commit.
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # Set up Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24 # Specify your Node.js version
+          cache: 'npm'
+
+      # ci, not install: install may resolve versions the lockfile does not
+      # pin, so what deploys could differ from what CI just tested
+      - name: Install dependencies
+        run: npm ci
+
+      # Build the project
+      - name: Build the project
+        run: npm run build
+
+      # Upload the build output as an artifact
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ./dist
+
+      # Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
